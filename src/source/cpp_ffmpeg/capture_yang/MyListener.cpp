@@ -10,6 +10,7 @@ MyListener::MyListener(void)
 MyListener::~MyListener(void)
 {
 }
+
 void MyListener::onVideoFrame(AVFrame* frame){
 	//printf("MyListener onVideoFrame!\n");
 	win->ShowAVFrame(frame);

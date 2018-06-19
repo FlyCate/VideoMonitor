@@ -1,5 +1,5 @@
 #include "CFFMpeg.h"
-
+#include <windows.h>
 
 CFFMpeg::CFFMpeg(PacketListener* listener)
 {
@@ -8,21 +8,13 @@ CFFMpeg::CFFMpeg(PacketListener* listener)
 	av_register_all();
 	avformat_network_init();
 	pFormatCtx = avformat_alloc_context();
-	
-	//Open File
-	//char filepath[]="src01_480x272_22.h265";
-	//avformat_open_input(&pFormatCtx,filepath,NULL,NULL)
 
 	//Register Device
 	avdevice_register_all();
-	//Windows
 
-	//初始化SDL
-	if(SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_TIMER)) {  
-		printf( "Could not initialize SDL - %s\n", SDL_GetError()); 
-		
-	} 
-
+	m_lFrame = 25;
+	pAudioFrame = nullptr;
+	pVideoFrame = nullptr;
 }
 
 
@@ -44,13 +36,17 @@ int CFFMpeg::OpenInput(char* format, char* fname)
 	//Video frame size. The default is to capture the full screen
 	//av_dict_set(&options,"video_size","640x480",0);
 	//查找输入流
-	if(format != NULL){
+	if(format != NULL)
+	{
 		ifmt=av_find_input_format(format);
-	}else{
+	}
+	else
+	{
 		ifmt = NULL;
 	}
 	//读取输入流，结果存在pFormatCtx中
-	if(avformat_open_input(&pFormatCtx,fname,ifmt,&options)!=0){
+	if(avformat_open_input(&pFormatCtx,fname,ifmt,&options)!=0)
+	{
 		printf("Couldn't open input stream.\n");
 		return -1;
 	}
@@ -61,17 +57,18 @@ int CFFMpeg::OpenInput(char* format, char* fname)
 	找到Audio和Video的流编号，并获取相应的解码器
 	
 */
-void CFFMpeg::FindAV(void)
+int CFFMpeg::FindAV()
 {
 	if(avformat_find_stream_info(pFormatCtx,NULL)<0)
 	{
 		printf("Couldn't find stream information.\n");
-		return ;
+		return -1;
 	}
 	videoindex=-1;
 	audioindex = -1;
 	//遍历所有的流，并找到视频流
-	for(int i=0; i<pFormatCtx->nb_streams; i++){ 
+	for(int i=0; i<pFormatCtx->nb_streams; i++)
+	{ 
 		if(pFormatCtx->streams[i]->codec->codec_type==AVMEDIA_TYPE_VIDEO)
 		{
 			videoindex=i;
@@ -79,7 +76,8 @@ void CFFMpeg::FindAV(void)
 		}
 
 	}
-	for(int i=0; i<pFormatCtx->nb_streams; i++){ 
+	for(int i=0; i<pFormatCtx->nb_streams; i++)
+	{ 
 		if(pFormatCtx->streams[i]->codec->codec_type==AVMEDIA_TYPE_AUDIO)
 		{
 			audioindex=i;
@@ -93,7 +91,7 @@ void CFFMpeg::FindAV(void)
 		printf("Didn't find a video stream.\n");
 		pVideoCodecCtx =NULL;
 		pVideoCodec = NULL;
-		//return;
+		return -1;
 	}else{
 		//记住视频解码器
 		pVideoCodecCtx=pFormatCtx->streams[videoindex]->codec;
@@ -110,6 +108,11 @@ void CFFMpeg::FindAV(void)
 				printf("Could not open codec.\n");
 			}else{
 				listener->onVideoSize(pVideoCodecCtx->width,pVideoCodecCtx->height,pVideoCodecCtx->pix_fmt);
+				m_lFrame = pVideoCodecCtx->time_base.den / pVideoCodecCtx->time_base.num;
+				if (m_lFrame <= 0 || m_lFrame >= 30)
+				{
+					m_lFrame = 25;
+				}
 			}
 
 		}
@@ -139,84 +142,139 @@ void CFFMpeg::FindAV(void)
 		}
 	}
 
-
-
-
-}
-
-int thread_exit=0;
-int sfp_refresh_thread(void *opaque)
-{
-	printf("sfp_refresh_thread called\r\n");
-	thread_exit=0;
-	while (!thread_exit) {
-		SDL_Event event;
-		event.type = SFM_REFRESH_EVENT;
-		//printf("send %d\n",event.type);
-		SDL_PushEvent(&event);
-		SDL_Delay(40);
-	}
-	thread_exit=0;
-	//Break
-	SDL_Event event;
-	event.type = SFM_BREAK_EVENT;
-	SDL_PushEvent(&event);
-
 	return 0;
 }
+
 void CFFMpeg::Process()
 {
 	AVPacket *packet=(AVPacket *)av_malloc(sizeof(AVPacket));
 	
-	
 	pAudioFrame=av_frame_alloc();
 	pVideoFrame=av_frame_alloc();
-	
-	SDL_Thread *video_tid = SDL_CreateThread(sfp_refresh_thread,NULL);
-		//Event Loop
-	SDL_Event event;
 
-	printf("SFM_REFRESH_EVENT = %d\r\n",SFM_REFRESH_EVENT);
+	const long lIntervalTime = (1000 / m_lFrame);
+	thread_exit = 0;
 	
-	for (;;) {
-		//Wait
-		SDL_WaitEvent(&event);
-		//printf("event %d\n",event.type);
-		if(event.type==SFM_REFRESH_EVENT){
-			//------------------------------
-			if(av_read_frame(pFormatCtx, packet)>=0){
-				listener->onRecvPacket(packet);
+	while (!thread_exit)
+	{
+		if(av_read_frame(pFormatCtx, packet) >= 0)
+		{
+			listener->onRecvPacket(packet);
 				
-				if(packet->stream_index==videoindex){
-					_ProcessVideoPacket(packet);
-				}else if(packet->stream_index == audioindex){
-					_ProcessAudioPacket(packet);
-				}
-				av_free_packet(packet);
-			}else{
-				//Exit Thread
-				thread_exit=1;
+			if(packet->stream_index == videoindex)
+			{
+				_ProcessVideoPacket(packet);
 			}
-		}else if(event.type==SDL_QUIT){
+			else if(packet->stream_index == audioindex)
+			{
+				_ProcessAudioPacket(packet);
+			}
+			av_free_packet(packet);
+		}else
+		{
+			//Exit Thread
 			thread_exit=1;
-		}else if(event.type==SFM_BREAK_EVENT){
-			break;
 		}
 
+		Sleep(lIntervalTime);
 	}
-
 }
 
+int CFFMpeg::DecoderInit(const CDataManagerBase * dataManager, const long lWidth, const long lHeight, const char * szFormat, const long lFrame)
+{
+	AVCodecID id;
+	if (strstr(szFormat, "h264") != nullptr)
+	{
+		id = CODEC_ID_H264;
+	}
+	else
+	{
+		return -1;
+	}
+
+	pVideoCodec = avcodec_find_decoder(id);
+	if (!pVideoCodec)
+	{
+		printf("avcodec_find_decoder fail\n");
+		return -1;
+	}
+
+	pVideoCodecCtx = avcodec_alloc_context3(pVideoCodec);
+	if (!pVideoCodecCtx)
+	{
+		printf("avcodec_alloc_context3 fail\n");
+		return -1;
+	}
+
+	pVideoCodecCtx->width = lWidth;
+	pVideoCodecCtx->height = lHeight;
+	//pVideoCodecCtx->pix_fmt = AV_PIX_FMT_BGR24;
+
+	if (avcodec_open2(pVideoCodecCtx, pVideoCodec, NULL) < 0)
+	{
+		printf("avcodec_open2 fail\n");
+		return -1;
+	}
+
+	//listener->onVideoSize(pVideoCodecCtx->width, pVideoCodecCtx->height, pVideoCodecCtx->pix_fmt);
+
+	m_lFrame = lFrame;
+	m_pDataManager = (CDataManagerBase *)dataManager;
+
+	return 0;
+}
+
+void CFFMpeg::DecoderProcess()
+{
+	STRU_DATA objData;
+	AVPacket *packet = (AVPacket *)av_malloc(sizeof(AVPacket));
+
+	pVideoFrame = av_frame_alloc();
+
+	const long lIntervalTime = (1000 / m_lFrame);
+	thread_exit = 0;
+
+	while (!thread_exit)
+	{
+		if (m_pDataManager->GetData(&objData.pData, objData.lDataLen) == 0)
+		{
+			packet->data = (uint8_t *)objData.pData;
+			packet->size = objData.lDataLen;
+
+			listener->onRecvPacket(packet);
+			_ProcessVideoPacket(packet);
+		}
+
+		Sleep(lIntervalTime);
+	}
+
+	av_free_packet(packet);
+}
+
+void CFFMpeg::DecoderFini()
+{
+	thread_exit = 1;
+}
 
 void CFFMpeg::_ProcessVideoPacket(AVPacket* packet)
 {
+	static bool bVideoOnSize = false;
+	static char * pSavebuff = nullptr;
 	int got_picture = -1;
 	int ret = avcodec_decode_video2(pVideoCodecCtx, pVideoFrame, &got_picture, packet);
 	if(ret < 0){
 		printf("Decode Video Error.\n");
 		return;
 	}
-	if(got_picture){
+	if(got_picture)
+	{
+		if (bVideoOnSize == false)
+		{
+			listener->onVideoSize(pVideoCodecCtx->width, pVideoCodecCtx->height, pVideoCodecCtx->pix_fmt);
+			pSavebuff = new char[pVideoCodecCtx->width * pVideoCodecCtx->height * 3];
+			bVideoOnSize = true;
+		}
+
 		listener->onVideoFrame(pVideoFrame);
 	}
 }
@@ -237,13 +295,24 @@ void CFFMpeg::_ProcessAudioPacket(AVPacket* packet)
 
 void CFFMpeg::CloseInput(void)
 {
-	
 	//av_free(pFrameYUV);
 	if(pAudioCodecCtx!=NULL){
 		avcodec_close(pAudioCodecCtx);
 	}
 	if(pVideoCodecCtx!=NULL){
 		avcodec_close(pVideoCodecCtx);
+	}
+
+	if (pVideoFrame)
+	{
+		av_frame_free(&pVideoFrame);
+		pVideoFrame = nullptr;
+	}
+
+	if (pAudioFrame)
+	{
+		av_frame_free(&pAudioFrame);
+		pAudioFrame = nullptr;
 	}
 
 	avformat_close_input(&pFormatCtx);

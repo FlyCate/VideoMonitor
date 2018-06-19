@@ -7,7 +7,7 @@ extern "C"
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
 #include "libavdevice/avdevice.h"
-#include "SDL/SDL.h"
+//#include "SDL/SDL.h"
 };
 #else
 //Linux...
@@ -25,6 +25,7 @@ extern "C"
 #endif
 #endif
 #include "PacketListener.h"
+#include "DataManagerBase.h"
 
 
 //Refresh Event
@@ -37,6 +38,10 @@ class CFFMpeg
 public:
 	CFFMpeg(PacketListener* listener);
 	~CFFMpeg(void);
+
+private:
+	CFFMpeg();
+
 private:
 	PacketListener* listener;//我们的监听器接口
 
@@ -54,14 +59,24 @@ private:
 	AVFrame	*pVideoFrame;
 	AVFrame	*pAudioFrame;
 
+	int thread_exit;
+	long m_lFrame;
+	CDataManagerBase * m_pDataManager;
+
 public:
+	//输入文件 网络流方式
 	int OpenInput(char* format, char* fname);
-	void FindAV(void);
+	int FindAV();
 	void Process();
+	void CloseInput(void);
+
+	//通过其他流获取方式
+	int DecoderInit(const CDataManagerBase * dataManager, const long lWidth, const long lHeight, const char * szFormat, const long lFrame = 25);
+	void DecoderProcess();
+	void DecoderFini();
+
 private:
 	void _ProcessVideoPacket(AVPacket* packet);
 	void _ProcessAudioPacket(AVPacket* packet);
-public:
-	void CloseInput(void);
 };
 

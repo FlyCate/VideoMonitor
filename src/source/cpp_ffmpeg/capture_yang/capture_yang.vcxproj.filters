@@ -33,6 +33,12 @@
     <ClCompile Include="MyListener.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="DataManagerBase.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="DataManagerRTP.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="PacketListener.h">
@@ -45,6 +51,12 @@
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="MyListener.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="DataManagerBase.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="DataManagerRTP.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

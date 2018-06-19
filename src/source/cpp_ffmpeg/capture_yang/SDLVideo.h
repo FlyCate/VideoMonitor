@@ -45,6 +45,8 @@ private:
 	struct SwsContext *img_convert_ctx;
 	AVFrame* pFrameYUV;
 	SDL_Rect rect;
+
+	char * m_pYUVBuf;
 public:
 	int OpenVideo(int width, int height,AVPixelFormat pix_fmt);
 	void ShowAVFrame(AVFrame* frame);
